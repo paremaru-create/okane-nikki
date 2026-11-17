@@ -512,6 +512,12 @@ function renderSyncCard(){
       <button class="btn-ghost" style="border:1px solid var(--line); border-radius:10px;" data-action="pull-sync">⬇ サーバーから取得</button>
       <button class="btn-solid" data-action="push-sync">⬆ サーバーへ送信</button>
     </div>
+    <div class="form-actions" style="margin-bottom:8px;">
+      <button class="btn-ghost" style="border:1px solid var(--line); border-radius:10px;" data-action="export-file">📁 ファイルに書き出す</button>
+      <button class="btn-ghost" style="border:1px solid var(--line); border-radius:10px;" data-action="import-file">📂 ファイルから読み込む</button>
+    </div>
+    <input type="file" id="import-input" accept=".json,application/json" style="display:none" />
+    <div class="sync-status">この端末のデータの大きさ：約${JSON.stringify(d).length.toLocaleString("ja-JP")}文字</div>
     <div class="sync-status">最終同期：${lastSync}</div>
     ${d.lastPullInfo?`<div class="sync-status" style="margin-top:2px;">最後に取得したデータ → ${esc(d.lastPullInfo)}</div>`:""}
     ${d.lastPushedAt?`<div class="sync-status" style="margin-top:2px;">最後に送信した日時 → ${esc(new Date(d.lastPushedAt).toLocaleString("ja-JP"))}</div>`:""}
@@ -965,6 +971,28 @@ async function pullSync(){
     showToast("サーバーから取得しました");
   }catch(err){ showToast("取得に失敗しました。URLを確認してください"); }
 }
+function exportFile(){
+  const blob = new Blob([JSON.stringify(state.data)], {type:"application/json"});
+  const a = document.createElement("a");
+  const d = new Date();
+  const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+  a.href = URL.createObjectURL(blob);
+  a.download = `okane-backup-${ymd}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  showToast("ファイルに書き出しました（ダウンロードフォルダを確認）");
+}
+function importFileText(text){
+  let json; try{ json = JSON.parse(text); }catch(e){ showToast("ファイルを読み込めませんでした（形式が違います）"); return; }
+  if(!json || !json.monthsData){ showToast("おかね日記のデータファイルではありません"); return; }
+  const months = Object.keys(json.monthsData).length;
+  const count = Object.values(json.monthsData).reduce((n,m)=>n+((m.expenses||[]).length),0);
+  if(!confirm(`このファイルのデータ（${months}か月分／支出${count}件）で、この端末のデータを上書きします。よろしいですか？`)) return;
+  const keepUrl = state.data.syncUrl, keepToken = state.data.syncToken;
+  state.data = { ...defaultData(), ...json, syncUrl:keepUrl, syncToken:keepToken };
+  saveData();
+  render();
+  showToast("ファイルから読み込みました");
+}
 async function copyGasCode(){
   const code = document.getElementById("gas-code").textContent;
   try{ await navigator.clipboard.writeText(code); showToast("コピーしました。Apps Scriptに貼り付けてください"); }
@@ -1071,6 +1099,8 @@ document.addEventListener("click", (e)=>{
   else if(act==="push-sync"){ pushSync(); }
   else if(act==="pull-sync"){ pullSync(); }
   else if(act==="copy-gas-code"){ copyGasCode(); }
+  else if(act==="export-file"){ exportFile(); }
+  else if(act==="import-file"){ const i=document.getElementById("import-input"); if(i) i.click(); }
 });
 
 document.addEventListener("input", (e)=>{
@@ -1096,6 +1126,15 @@ document.addEventListener("input", (e)=>{
 });
 
 document.addEventListener("change", (e)=>{
+  if(e.target && e.target.id==="import-input"){
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const r = new FileReader();
+    r.onload = ()=>{ importFileText(String(r.result||"")); };
+    r.readAsText(f);
+    e.target.value = "";
+    return;
+  }
   const el = e.target;
   if(el.dataset.action==="tpl-category"){ state.tplForm.categoryId = el.value; }
 });
