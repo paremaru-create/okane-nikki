@@ -513,6 +513,8 @@ function renderSyncCard(){
       <button class="btn-solid" data-action="push-sync">⬆ サーバーへ送信</button>
     </div>
     <div class="sync-status">最終同期：${lastSync}</div>
+    ${d.lastPullInfo?`<div class="sync-status" style="margin-top:2px;">最後に取得したデータ → ${esc(d.lastPullInfo)}</div>`:""}
+    ${d.lastPushedAt?`<div class="sync-status" style="margin-top:2px;">最後に送信した日時 → ${esc(new Date(d.lastPushedAt).toLocaleString("ja-JP"))}</div>`:""}
     <details class="help" style="margin-top:10px;">
       <summary>設定方法を見る（初回のみ）</summary>
       <div class="help-steps">
@@ -926,16 +928,25 @@ async function pushSync(){
   const url = (state.data.syncUrl||"").trim(), token = (state.data.syncToken||"").trim();
   if(!url){ showToast("同期先のURLを入力してください"); return; }
   showToast("送信中…");
+  const now = new Date().toISOString();
   try{
-    const res = await fetch(`${url}?token=${encodeURIComponent(token)}`, { method:"POST", body: JSON.stringify(state.data) });
+    const res = await fetch(`${url}?token=${encodeURIComponent(token)}`, { method:"POST", body: JSON.stringify({ ...state.data, lastPushedAt: now }) });
     const text = await res.text();
     let json; try{ json = JSON.parse(text); }catch(e){ json = null; }
     if(json && json.error){ showToast("エラー："+json.error); return; }
-    state.data.lastSyncedAt = new Date().toISOString();
+    if(!json || json.ok !== true){ showToast("送信できていません（サーバーから正常な応答がありません）。Apps Scriptの設定を確認してください"); return; }
+    state.data.lastPushedAt = now;
+    state.data.lastSyncedAt = now;
     saveData();
     render();
     showToast("サーバーへ送信しました");
   }catch(err){ showToast("送信に失敗しました。URLを確認してください"); }
+}
+function summarizeData(d){
+  const months = Object.keys(d.monthsData||{});
+  const count = months.reduce((n,k)=> n + ((d.monthsData[k].expenses||[]).length), 0);
+  const when = d.lastPushedAt ? new Date(d.lastPushedAt).toLocaleString("ja-JP") : "不明（古い版で送信されたデータ）";
+  return `送信日時：${when} ／ ${months.length}か月分 ／ 支出${count}件`;
 }
 async function pullSync(){
   const url = (state.data.syncUrl||"").trim(), token = (state.data.syncToken||"").trim();
@@ -948,7 +959,7 @@ async function pullSync(){
     let json; try{ json = JSON.parse(text); }catch(e){ showToast("取得したデータを解析できませんでした"); return; }
     if(json && json.error){ showToast("エラー："+json.error); return; }
     if(!json || !json.monthsData){ showToast("サーバーにまだデータがありません。先に「送信」してください"); return; }
-    state.data = { ...defaultData(), ...json, syncUrl:url, syncToken:token, lastSyncedAt: new Date().toISOString() };
+    state.data = { ...defaultData(), ...json, syncUrl:url, syncToken:token, lastSyncedAt: new Date().toISOString(), lastPullInfo: summarizeData(json) };
     saveData();
     render();
     showToast("サーバーから取得しました");
